@@ -146,17 +146,90 @@ static void reload_systick(void)
 
 static void dispatcher(task_switch_type_e type)
 {
+	/* Current task in the dispatcher */
+	uint8_t task_i;
+	/* Next idle task */
+	uint8_t next_task_handle =  task_list.nTasks;
+	/* Highest priority possible */
+	int8_t highest = -1;
 
+
+	for(task_i = 0; task_i < task_list.nTasks; task_i++)
+	{
+		if(task_list.tasks[task_i].priority > highest && ((S_READY == task_list.tasks[task_i].state) || (S_RUNNING == task_list.tasks[task_i].state)))
+		{
+			/* Set task priority as Highest priority */
+			highest = task_list.tasks[task_i].priority;
+			/*  */
+			next_task_handle = task_i;
+		}
+	}
+
+	task_list.next_task = next_task_handle;
+	if(next_task_handle != task_list.current_task)
+	{
+		/* Change task to next task */
+		context_switch(type);
+	}
 
 }
 
 FORCE_INLINE static void context_switch(task_switch_type_e type)
 {
 
+	 /* Get current stack  pointer */
+	register uint32_T sp asm("r0");
+
+	/* Value for first task */
+	static uint8_t first = 1;
+	/* For the current task if not the first task */
+	if(!first)
+	{
+		asm("mov r0, r7");
+		/* Save the stack pointer in the current task */
+		if(kFromISR == type)
+		{
+			task_list.task[task_list.current_task].sp = (uint32_t*)sp + 9;
+		}
+		else
+		{
+			task_list.task[task_list.current_task].sp = (uint32_t*)sp -9;
+		}
+	}
+	else
+	{
+		first = 0;
+	}
+
+	/* Moves to next */
+	task_list.current_task = task_list.next_task;
+	/* Puts next task in running state */
+	task_list.tasks[task_list.next_task].state = S_RUNNING;
+	/* Call the context Switch */
+	SCB->ICSR  |= SCB_ICSR_PENDVSET_Msk;
 }
 
 static void activate_waiting_tasks()
 {
+	/* Counter for current  task */
+	uint8_t task_i;
+	/* Each task in the list */
+	for(task_i = 0; task_i < task_list.nTasks; task_i++)
+	{
+		 if(S_WAITING == task_list.tasks[task_i].state)
+		 {
+			 /* Decrease local clock -1 */
+			 task_list.task[task_i].local_tick--;
+			 /* If local tick is 0 */
+			 if(0 == task_list.tasks[task_i].local_tick)
+			 {
+
+				 /*Current task is set to ready*/
+
+				 task_list.tasks[task_i].state = S_READY;
+			 }
+		 }
+	}
 
 }
 

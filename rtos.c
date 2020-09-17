@@ -100,6 +100,12 @@ void rtos_start_scheduler(void)
 	SysTick->CTRL = SysTick_CTRL_CLKSOURCE_Msk | SysTick_CTRL_TICKINT_Msk
 	        | SysTick_CTRL_ENABLE_Msk;
 	reload_systick();
+
+	/*Global clock in 0 */
+		task_list.global_tick = 0;
+	/*Call rtos create task(idles task, 0, auto start)*/
+		rtos_create_task(idle_task, 0, kAutoStart);
+
 	for (;;)
 		;
 }
@@ -111,7 +117,7 @@ rtos_task_handle_t rtos_create_task(void (*task_body)(), uint8_t priority,
 	rtos_task_handle_t task_handle;
 
 	/*Check if there's space in the Task List*/
-	if(task_list.nTasks > RTOS_MAX_NUMBER_OF_TASKS -1)
+	if(task_list.nTasks > RTOS_MAX_NUMBER_OF_TASKS - 1)
 	{
 		/*List is full invalid task return value -1*/
 		task_handle = -1;
@@ -184,12 +190,20 @@ void rtos_delay(rtos_tick_t ticks)
 
 void rtos_suspend_task(void)
 {
+	/*Set current task state to suspend */
+	task_list.tasks[task_list.current_task].state = S_SUSPENDED;
+	/* Dispatcher function call with value FromNormalExecution */
+	dispatcher(kFromNormalExec);
 
 }
 
 void rtos_activate_task(rtos_task_handle_t task)
 {
 
+	/*Set current task state to ready */
+	task_list.tasks[task_list.current_task].state = S_READY;
+	/* Dispatcher function call with value FromNormalExecution */
+	dispatcher(kFromNormalExec);
 }
 
 /**********************************************************************************/
@@ -210,15 +224,15 @@ static void dispatcher(task_switch_type_e type)
 	/* Next idle task */
 	uint8_t next_task_handle =  task_list.nTasks;
 	/* Highest priority possible */
-	int8_t highest = -1;
+	int8_t highest_priority = -1;
 
 
 	for(task_i = 0; task_i < task_list.nTasks; task_i++)
 	{
-		if(task_list.tasks[task_i].priority > highest && ((S_READY == task_list.tasks[task_i].state) || (S_RUNNING == task_list.tasks[task_i].state)))
+		if(task_list.tasks[task_i].priority > highest_priority && ((S_READY == task_list.tasks[task_i].state) || (S_RUNNING == task_list.tasks[task_i].state)))
 		{
 			/* Set task priority as Highest priority */
-			highest = task_list.tasks[task_i].priority;
+			highest_priority = task_list.tasks[task_i].priority;
 			/*  */
 			next_task_handle = task_i;
 		}
@@ -248,7 +262,7 @@ FORCE_INLINE static void context_switch(task_switch_type_e type)
 		/* Save the stack pointer in the current task */
 		if(kFromISR == type)
 		{
-			task_list.tasks[task_list.current_task].sp = (uint32_t*)sp + 9;
+			task_list.tasks[task_list.current_task].sp = (uint32_t*)sp + (-7);
 		}
 		else
 		{
@@ -315,11 +329,18 @@ void SysTick_Handler(void)
 #endif
 	activate_waiting_tasks();
 	reload_systick();
+	dispatcher(kFromISR);
+
 }
 
 void PendSV_Handler(void)
 {
-
+ /*Function implemented based on Tarea2 file*/
+  register int32_t r0 asm("r0");
+  (void) r0;
+  SCB->ICSR |= SCB_ICSR_PENDSVCLR_Msk;
+  r0 = (int32_t) task_list.tasks[task_list.current_task].sp;
+  asm("mov r7,r0");
 }
 
 /**********************************************************************************/

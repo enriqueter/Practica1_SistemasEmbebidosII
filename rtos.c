@@ -145,7 +145,6 @@ rtos_task_handle_t rtos_create_task(void (*task_body)(), uint8_t priority,
 		task_list.nTasks++;
 		/*Initialize local clock*/
 		task_list.tasks[task_list.nTasks].local_tick = 0;
-
 		/*****************************/
 		/*****************************/
 
@@ -167,7 +166,8 @@ rtos_task_handle_t rtos_create_task(void (*task_body)(), uint8_t priority,
 
 rtos_tick_t rtos_get_clock(void)
 {
-	return 0;
+	/* Return the value of the system clock */
+	return task_list.global_tick;
 }
 
 void rtos_delay(rtos_tick_t ticks)

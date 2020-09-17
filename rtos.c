@@ -107,6 +107,59 @@ void rtos_start_scheduler(void)
 rtos_task_handle_t rtos_create_task(void (*task_body)(), uint8_t priority,
 		rtos_autostart_e autostart)
 {
+	/*Output variable*/
+	rtos_task_handle_t task_handle;
+
+	/*Check if there's space in the Task List*/
+	if(task_list.nTasks > RTOS_MAX_NUMBER_OF_TASKS -1)
+	{
+		/*List is full invalid task return value -1*/
+		task_handle = -1;
+
+	}
+	else
+	{
+		if(autostart == kAutoStart)
+		{
+			/*Set task state to ready */
+			task_list.tasks[task_list.nTasks].state = S_READY;
+		}
+		else
+		{
+			/*Set task state to suspend */
+			task_list.tasks[task_list.nTasks].state = S_SUSPENDED;
+		}
+
+		/*****************************/
+		/* TASK STACK INITIALIZATION */
+		/*****************************/
+		/*Set pointer to the task */
+		task_list.tasks[task_list.nTasks].task_body = task_body;
+		/*Create space in stack for context change */
+		task_list.tasks[task_list.nTasks].sp = &(task_list.tasks[task_list.nTasks].stack[RTOS_STACK_SIZE - 1]) - STACK_FRAME_SIZE;
+		/*Set stack frame with  the return address bye StackSize - offset */
+		task_list.tasks[task_list.nTasks].stack[RTOS_STACK_SIZE - STACK_LR_OFFSET] = (uint32_t)task_body;
+		/* Initialize the stack frame in default PSR value */
+		task_list.tasks[task_list.nTasks].stack[RTOS_STACK_SIZE - STACK_PSR_OFFSET] = STACK_PSR_DEFAULT;
+		/*Increase task list index value*/
+		task_list.nTasks++;
+		/*Initialize local clock*/
+		task_list.tasks[task_list.nTasks].local_tick = 0;
+
+		/*****************************/
+		/*****************************/
+
+
+		/*Set input priority to the task */
+		task_list.tasks[task_list.nTasks].priority = priority;
+		/*Set task handle to return variable*/
+		task_handle = task_list.nTasks - 1;
+
+
+	}
+
+	/* Return the value of task_handle */
+	return task_handle;
 
 
 
@@ -178,7 +231,7 @@ FORCE_INLINE static void context_switch(task_switch_type_e type)
 {
 
 	 /* Get current stack  pointer */
-	register uint32_T sp asm("r0");
+	register uint32_t sp asm("r0");
 
 	/* Value for first task */
 	static uint8_t first = 1;
@@ -189,11 +242,11 @@ FORCE_INLINE static void context_switch(task_switch_type_e type)
 		/* Save the stack pointer in the current task */
 		if(kFromISR == type)
 		{
-			task_list.task[task_list.current_task].sp = (uint32_t*)sp + 9;
+			task_list.tasks[task_list.current_task].sp = (uint32_t*)sp + 9;
 		}
 		else
 		{
-			task_list.task[task_list.current_task].sp = (uint32_t*)sp -9;
+			task_list.tasks[task_list.current_task].sp = (uint32_t*)sp -9;
 		}
 	}
 	else
@@ -206,7 +259,7 @@ FORCE_INLINE static void context_switch(task_switch_type_e type)
 	/* Puts next task in running state */
 	task_list.tasks[task_list.next_task].state = S_RUNNING;
 	/* Call the context Switch */
-	SCB->ICSR  |= SCB_ICSR_PENDVSET_Msk;
+	SCB->ICSR  |= SCB_ICSR_PENDSVSET_Msk;
 }
 
 static void activate_waiting_tasks()
@@ -219,7 +272,7 @@ static void activate_waiting_tasks()
 		 if(S_WAITING == task_list.tasks[task_i].state)
 		 {
 			 /* Decrease local clock -1 */
-			 task_list.task[task_i].local_tick--;
+			 task_list.tasks[task_i].local_tick--;
 			 /* If local tick is 0 */
 			 if(0 == task_list.tasks[task_i].local_tick)
 			 {

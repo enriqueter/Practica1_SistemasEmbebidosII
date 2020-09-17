@@ -173,6 +173,12 @@ rtos_tick_t rtos_get_clock(void)
 void rtos_delay(rtos_tick_t ticks)
 {
 
+	/*Set current task state to waiting */
+	task_list.tasks[task_list.current_task].state = S_WAITING;
+	/*Set ticks of the delay to local tick of the task*/
+	task_list.tasks[task_list.current_task].local_tick = ticks;
+	/* Dispatcher function call with value FromNormalExecution */
+	dispatcher(kFromNormalExec);
 
 }
 

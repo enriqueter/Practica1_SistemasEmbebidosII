@@ -14,6 +14,7 @@ rtos_get_clock:
 rtos_delay:
 pone la tarea actual en espera y pasa el valor del delay a los local ticks y hace la llamada al dispatcher
 rtos_suspend_task:
+
 Pone la tarea actual en estado suspend y hace la llamada al dispatcher
 rtos_activate_task:
 Pone la tarea actual en ready y hace la llamada al dispatcher
@@ -26,3 +27,5 @@ activate_waiting_task
 systick:
 
 PendSV:
+
+Notas:

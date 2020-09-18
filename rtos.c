@@ -97,15 +97,12 @@ void rtos_start_scheduler(void)
 #ifdef RTOS_ENABLE_IS_ALIVE
 	init_is_alive();
 #endif
+	task_list.global_tick = 0;
+	task_list.current_task = -1;
+	rtos_create_task(idle_task, 0, kAutoStart);
 	SysTick->CTRL = SysTick_CTRL_CLKSOURCE_Msk | SysTick_CTRL_TICKINT_Msk
 	        | SysTick_CTRL_ENABLE_Msk;
 	reload_systick();
-
-	/*Global clock in 0 */
-		task_list.global_tick = 0;
-	/*Call rtos create task(idles task, 0, auto start)*/
-		rtos_create_task(idle_task, 0, kAutoStart);
-
 	for (;;)
 		;
 }
@@ -113,97 +110,51 @@ void rtos_start_scheduler(void)
 rtos_task_handle_t rtos_create_task(void (*task_body)(), uint8_t priority,
 		rtos_autostart_e autostart)
 {
-	/*Output variable*/
-	rtos_task_handle_t task_handle;
+	rtos_task_handle_t retval = -1; /*Default value for retval*/
 
-	/*Check if there's space in the Task List*/
-	if(task_list.nTasks > RTOS_MAX_NUMBER_OF_TASKS - 1)
+	if(task_list.nTasks < RTOS_MAX_NUMBER_OF_TASKS)	/*Create a new task only of there is availability */
 	{
-		/*List is full invalid task return value -1*/
-		task_handle = -1;
-
-	}
-	else
-	{
-		if(autostart == kAutoStart)
+		if(kAutoStart == autostart) /*Define state depending on the rtos_autostart_e value*/
 		{
-			/*Set task state to ready */
 			task_list.tasks[task_list.nTasks].state = S_READY;
-		}
-		else
+		}else
 		{
-			/*Set task state to suspend */
 			task_list.tasks[task_list.nTasks].state = S_SUSPENDED;
 		}
 
-		/*****************************/
-		/* TASK STACK INITIALIZATION */
-		/*****************************/
-		/*Set pointer to the task */
-		task_list.tasks[task_list.nTasks].task_body = task_body;
-		/*Create space in stack for context change */
-		task_list.tasks[task_list.nTasks].sp = &(task_list.tasks[task_list.nTasks].stack[RTOS_STACK_SIZE - 1]) - STACK_FRAME_SIZE;
-		/*Set stack frame with  the return address bye StackSize - offset */
-		task_list.tasks[task_list.nTasks].stack[RTOS_STACK_SIZE - STACK_LR_OFFSET] = (uint32_t)task_body;
-		/* Initialize the stack frame in default PSR value */
+		task_list.tasks[task_list.nTasks].sp = &(task_list.tasks[task_list.nTasks].stack[RTOS_STACK_SIZE-1]) - STACK_FRAME_SIZE; /*Save sp value in the task variable*/
 		task_list.tasks[task_list.nTasks].stack[RTOS_STACK_SIZE - STACK_PSR_OFFSET] = STACK_PSR_DEFAULT;
-		/*Increase task list index value*/
-		task_list.nTasks++;
-		/*Initialize local clock*/
-		task_list.tasks[task_list.nTasks].local_tick = 0;
-		/*****************************/
-		/*****************************/
-
-
-		/*Set input priority to the task */
-		task_list.tasks[task_list.nTasks].priority = priority;
-		/*Set task handle to return variable*/
-		task_handle = task_list.nTasks - 1;
-
-
+		task_list.tasks[task_list.nTasks].stack[RTOS_STACK_SIZE - STACK_LR_OFFSET ] = (uint32_t)task_body;
+		task_list.tasks[task_list.nTasks].local_tick = 0; /*Initialize the tick variable*/
+		task_list.tasks[task_list.nTasks].priority = priority; /*Establish the priority*/
+		retval = task_list.nTasks; /*Save the actual number of tasks*/
+		task_list.nTasks++; /*Increase the number of tasks*/
 	}
-
-	/* Return the value of task_handle */
-	return task_handle;
-
-
-
+	return retval;
 }
 
 rtos_tick_t rtos_get_clock(void)
 {
-	/* Return the value of the system clock */
-	return task_list.global_tick;
+	return (task_list.global_tick); /*Return the glocal tick value*/
 }
 
 void rtos_delay(rtos_tick_t ticks)
 {
-
-	/*Set current task state to waiting */
-	task_list.tasks[task_list.current_task].state = S_WAITING;
-	/*Set ticks of the delay to local tick of the task*/
-	task_list.tasks[task_list.current_task].local_tick = ticks;
-	/* Dispatcher function call with value FromNormalExecution */
-	dispatcher(kFromNormalExec);
-
+	task_list.tasks[task_list.current_task].state = S_WAITING; /*Change the state to waiting*/
+	task_list.tasks[task_list.current_task].local_tick = ticks; /*Save the tick value*/
+	dispatcher(kFromNormalExec); /*Call dispatcher to decide which task will be executed next*/
 }
 
 void rtos_suspend_task(void)
 {
-	/*Set current task state to suspend */
-	task_list.tasks[task_list.current_task].state = S_SUSPENDED;
-	/* Dispatcher function call with value FromNormalExecution */
-	dispatcher(kFromNormalExec);
-
+	task_list.tasks[task_list.current_task].state = S_SUSPENDED; /*Change the state to waiting*/
+	dispatcher(kFromNormalExec); /*Call dispatcher to decide which task will be executed next*/
 }
 
 void rtos_activate_task(rtos_task_handle_t task)
 {
-
-	/*Set current task state to ready */
-	task_list.tasks[task_list.current_task].state = S_READY;
-	/* Dispatcher function call with value FromNormalExecution */
-	dispatcher(kFromNormalExec);
+	task_list.tasks[task].state = S_READY; /*Change the state to ready so it will execute*/
+	dispatcher(kFromNormalExec); /*Call dispatcher to decide which task will be executed next*/
 }
 
 /**********************************************************************************/
@@ -219,91 +170,64 @@ static void reload_systick(void)
 
 static void dispatcher(task_switch_type_e type)
 {
-	/* Current task in the dispatcher */
-	uint8_t task_i;
-	/* Next idle task */
-	uint8_t next_task_handle =  task_list.nTasks;
-	/* Highest priority possible */
-	int8_t highest_priority = -1;
+	uint8_t task_counter; /*Create counter for task_list.tasks iteration*/
+	int8_t max = -1; /*Initialize value to determine the greatest priority among the tasks*/
 
-
-	for(task_i = 0; task_i < task_list.nTasks; task_i++)
+	for(task_counter = 0 ; task_counter < task_list.nTasks ; task_counter++)
 	{
-		if(task_list.tasks[task_i].priority > highest_priority && ((S_READY == task_list.tasks[task_i].state) || (S_RUNNING == task_list.tasks[task_i].state)))
+		/*If the task is currently available and has a greatest priority, it will be executed next */
+		if(((task_list.tasks[task_counter].priority) > max) && (S_READY == (task_list.tasks[task_counter].state)|| S_RUNNING == (task_list.tasks[task_counter].state)))
 		{
-			/* Set task priority as Highest priority */
-			highest_priority = task_list.tasks[task_i].priority;
-			/*  */
-			next_task_handle = task_i;
+			max = task_list.tasks[task_counter].priority; /*Update the maximum priority found*/
+			task_list.next_task = task_counter; /*Save the next task with greatest priority*/
 		}
 	}
-
-	task_list.next_task = next_task_handle;
-	if(next_task_handle != task_list.current_task)
+	if(task_list.next_task != task_list.current_task) /*Change context only when needed*/
 	{
-		/* Change task to next task */
 		context_switch(type);
 	}
-
 }
 
 FORCE_INLINE static void context_switch(task_switch_type_e type)
 {
-
-	 /* Get current stack  pointer */
-	register uint32_t sp asm("r0");
-
-	/* Value for first task */
-	static uint8_t first = 1;
-	/* For the current task if not the first task */
+	register uint32_t sp asm("r0");	/*Retrieve sp value*/
+	static uint8_t first = 1; /*Initialize flag 'first'*/
 	if(!first)
 	{
 		asm("mov r0, r7");
-		/* Save the stack pointer in the current task */
-		if(kFromISR == type)
+		if(kFromISR == type)	/*Condition to distinguish from normal exevution and ISR*/
 		{
-			task_list.tasks[task_list.current_task].sp = (uint32_t*)sp + (-7);
-		}
-		else
+			task_list.tasks[task_list.current_task].sp = (uint32_t*)sp + 9; /*Adjust the sp value*/
+		}else
 		{
-			task_list.tasks[task_list.current_task].sp = (uint32_t*)sp -9;
+			task_list.tasks[task_list.current_task].sp = (uint32_t*)sp - 9;	/*Adjust the sp value*/
 		}
-	}
-	else
+	}else
 	{
 		first = 0;
 	}
 
-	/* Moves to next */
-	task_list.current_task = task_list.next_task;
-	/* Puts next task in running state */
+	task_list.current_task = task_list.next_task; /*Update the task to be executed next*/
 	task_list.tasks[task_list.next_task].state = S_RUNNING;
-	/* Call the context Switch */
-	SCB->ICSR  |= SCB_ICSR_PENDSVSET_Msk;
+	SCB->ICSR |= SCB_ICSR_PENDSVSET_Msk; /*Flag to start PendSV_Handler*/
+
 }
 
 static void activate_waiting_tasks()
 {
-	/* Counter for current  task */
-	uint8_t task_i;
-	/* Each task in the list */
-	for(task_i = 0; task_i < task_list.nTasks; task_i++)
+	uint8_t task_counter; /*Create counter for task_list.tasks iteration*/
+
+	for(task_counter = 0 ; task_counter < task_list.nTasks ; task_counter++) /*Activate tasks when needed*/
 	{
-		 if(S_WAITING == task_list.tasks[task_i].state)
-		 {
-			 /* Decrease local clock -1 */
-			 task_list.tasks[task_i].local_tick--;
-			 /* If local tick is 0 */
-			 if(0 == task_list.tasks[task_i].local_tick)
-			 {
-
-				 /*Current task is set to ready*/
-
-				 task_list.tasks[task_i].state = S_READY;
-			 }
-		 }
+		if(S_WAITING == task_list.tasks[task_counter].state)
+		{
+			task_list.tasks[task_counter].local_tick--;
+			if(0 == task_list.tasks[task_counter].local_tick) /*Determine if a task's deadline has passed or not*/
+			{
+				task_list.tasks[task_counter].state = S_READY; /*Wake task when local tick equals 0*/
+			}
+		}
 	}
-
 }
 
 /**********************************************************************************/
@@ -327,20 +251,18 @@ void SysTick_Handler(void)
 #ifdef RTOS_ENABLE_IS_ALIVE
 	refresh_is_alive();
 #endif
-	activate_waiting_tasks();
-	reload_systick();
+	task_list.global_tick++; /*Increase the counter of ticks since reset*/
+	activate_waiting_tasks(); /*Activate tasks that are ready to be executed*/
 	dispatcher(kFromISR);
-
+	reload_systick();
 }
 
 void PendSV_Handler(void)
 {
- /*Function implemented based on Tarea2 file*/
-  register int32_t r0 asm("r0");
-  (void) r0;
-  SCB->ICSR |= SCB_ICSR_PENDSVCLR_Msk;
-  r0 = (int32_t) task_list.tasks[task_list.current_task].sp;
-  asm("mov r7,r0");
+	register int32_t r0 asm("r0");
+	SCB->ICSR |= SCB_ICSR_PENDSVCLR_Msk; /*Clean SCB_ICSR_PENDSVCLR_Msk flag*/
+	r0 = (uint32_t)task_list.tasks[task_list.current_task].sp; /*Retrieve the sp*/
+	asm("mov r7, r0");
 }
 
 /**********************************************************************************/

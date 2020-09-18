@@ -27,17 +27,20 @@ dipatcher:
 Se crea una variable para iterar la lista de tareas y otra variable para llevar la prioridad maxima de la tarea actual, se checa si la tarea esta en estado ready o esta corriendo  y tiene mayor prioridad que la actual prioridad establecida, pone la prioridad de la tarea como la mas alta y guarda la tarea como la proxima. Si la proxima tarea es diferente  a la tarea actual hace el llamado al cambio de contexto.
 
 
-
 context_switch:
+Se tiene una bandera que pregunta si es la primera vez que entra, si no es la primera vez, guarda el sp en el stack de la tarea actual.
+Hace el cambio a la siguiente tarea y la pone en estado running e invoca el cambio de contexto.
 
 activate_waiting_task
+Se itera la lista de tareas, si esta en suspend se le resta uno al tick y si esta en cero se pone en lista.
 
 systick:
 Se incrementa el valor del reloj, se activa las tareas que estan listas y se corre el dispatcher.
+
 PendSV:
 Carga el stack pointer del procesador con el stack pointer de la tarea acual.
 
 Notas:
 - Se modifico el tamaño del stack a 500 basandonos en la tarea 2 ya que al tener el valor de 100 no corria las tareas
-- 
+- En el create task, se tenia una macro del offset mal y eso nos estaba generando un hardfault.
 - 

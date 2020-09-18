@@ -38,3 +38,6 @@ PendSV:
 Carga el stack pointer del procesador con el stack pointer de la tarea acual.
 
 Notas:
+- Se modifico el tamaño del stack a 500 basandonos en la tarea 2 ya que al tener el valor de 100 no corria las tareas
+- 
+- 
